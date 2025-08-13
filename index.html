@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniEmprende — Obleas (PWA)</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#ff5a7a">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <style>
+    :root{--bg:#fffdf7;--brand:#ff5a7a;--brand2:#ffd166;--outline:#ece6d4}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:system-ui,Segoe UI,Arial,sans-serif;color:#1a1a1a}
+    header{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--outline);padding:12px 16px;z-index:10}
+    .wrap{max-width:1100px;margin:auto;display:flex;align-items:center;justify-content:space-between}
+    .logo{font-weight:900}.logo small{color:#777}
+    .btn{border:0;border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer}
+    .primary{background:var(--brand);color:#fff}.secondary{background:var(--brand2)}
+    main{max-width:1100px;margin:auto;padding:16px;display:grid;gap:16px}
+    .card{background:#fff;border:1px solid var(--outline);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.06);padding:16px}
+    .cards{display:grid;gap:12px}@media(min-width:780px){.cards{grid-template-columns:repeat(3,1fr)}}
+    .card-opt{border:2px solid var(--outline);border-radius:16px;padding:12px;cursor:pointer;display:grid;gap:6px}
+    .card-opt.active{border-color:var(--brand);box-shadow:0 0 0 3px rgba(255,90,122,.18)}
+    .row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin:8px 0}
+    .row input,.row select{padding:10px;border:1px solid var(--outline);border-radius:10px;width:220px}
+    .insumos-header,.insumo{display:grid;grid-template-columns:1.3fr .9fr .9fr 1fr auto;gap:8px;align-items:center}
+    .insumos-header{color:#777;font-weight:800;margin-top:6px}.insumo{margin:8px 0}
+    .insumo input{width:100%;padding:8px;border:1px solid var(--outline);border-radius:10px}
+    .rm{background:#fff;border:1px solid #ddd;border-radius:50%;width:36px;height:36px;display:grid;place-items:center;cursor:pointer}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .kpi{border:1px solid var(--outline);border-radius:12px;background:#fff;text-align:center;padding:12px}
+    .kpi .v{font-size:22px;font-weight:900}.muted{color:#777}
+    .help{position:fixed;right:16px;bottom:16px;width:340px;max-height:72vh;background:#fff;border:1px solid var(--outline);border-radius:16px;display:none;flex-direction:column;overflow:auto;z-index:50}
+    .help.show{display:flex}.help h4{margin:10px 12px}.help p{margin:0 12px 12px}
+    footer{padding:20px 16px;text-align:center;color:#777}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">MiniEmprende <small>Obleas</small></div>
+    <div>
+      <button class="btn" id="btnHelp">❓ Ayuda</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- Landing -->
+  <section class="card" id="landing">
+    <h1>¡Crea tu negocio hoy! 🚀</h1>
+    <p class="muted">Elige un tipo de negocio, aprende y calcula costos, precio y ganancia.</p>
+    <h3>¿Qué quieres hacer?</h3>
+    <div class="cards" id="cardsTipo">
+      <div class="card-opt" data-tipo="fabricar">🛠️ <strong>Fabricar</strong><span class="muted">Pulseras, obleas… lo haces tú.</span></div>
+      <div class="card-opt active" data-tipo="revender">📦 <strong>Revender</strong><span class="muted">Audífonos, juguetes… compras y vendes.</span></div>
+      <div class="card-opt" data-tipo="servicio">🤝 <strong>Servicio</strong><span class="muted">Clases, pasear perros, lavar carros.</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn primary" id="goStart">✨ Empezar</button>
+      <button class="btn secondary" id="goHow">Ver cómo funciona</button>
+    </div>
+  </section>
+
+  <!-- Asistente -->
+  <section class="card" id="asistente" style="display:none">
+    <h2>Asistente — Obleas</h2>
+    <div class="row"><label>Nombre del producto</label><input id="nombreProd" value="Oblea tradicional"></div>
+    <div class="row"><label>Modelo</label>
+      <select id="modelo">
+        <option value="fabricar" selected>Lo hago yo</option>
+        <option value="revender">Lo compro y lo revendo</option>
+        <option value="servicio">Es un servicio</option>
+      </select>
+    </div>
+
+    <h3>Insumos por 1 oblea</h3>
+    <p class="muted">Si compras por paquetes, pon precio del paquete y cuántas porciones saca.</p>
+    <div class="insumos-header">
+      <div>Insumo</div><div>Precio paquete</div><div>Porciones</div><div>Usadas</div><div>Quitar</div>
+    </div>
+    <div id="insumos"></div>
+    <button class="btn primary" id="addInsumo">+ Agregar insumo</button>
+
+    <div class="row"><label>Merma (%)</label><input type="number" id="mermaPct" min="0" max="30" step="1" value="5"></div>
+    <div class="row"><label>Transporte por compra</label><input id="transporte" type="number" value="0" step="100"></div>
+    <div class="row"><label>Unidades que cubre transporte</label><input id="transporteUnidades" type="number" value="50" min="1"></div>
+
+    <div class="row"><label>Valor hora (COP, opcional)</label><input id="manoHora" type="number" value="0" step="1000"></div>
+    <div class="row"><label>Minutos por oblea</label><input id="minPorOblea" type="number" value="2" step="1"></div>
+
+    <h3>Precio y margen</h3>
+    <div class="row"><label>Precio de venta (COP)</label><input id="precioVenta" type="number" value="6000" step="100"></div>
+    <div class="row"><label>Margen objetivo (%)</label><input id="margenObjetivo" type="number" value="50" step="5"></div>
+    <button class="btn secondary" id="btnCalcular">Calcular</button>
+
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="muted">Costo unitario</div><div class="v" id="kCosto">—</div></div>
+      <div class="kpi"><div class="muted">Precio sugerido</div><div class="v" id="kSugerido">—</div></div>
+      <div class="kpi"><div class="muted">Ganancia/oblea</div><div class="v" id="kGanancia">—</div></div>
+      <div class="kpi"><div class="muted">Margen real</div><div class="v" id="kMargen">—</div></div>
+    </div>
+  </section>
+
+  <!-- Simulación mensual -->
+  <section class="card" id="simulacion" style="display:none">
+    <h2>Simulación mensual</h2>
+    <div class="row"><label>Unidades por mes</label><input id="simUnidades" type="number" value="120"></div>
+    <div class="row"><label>Costos fijos/mes</label><input id="costosFijos" type="number" value="0"></div>
+    <div class="row"><label>IVA/Impuesto ventas (%)</label><input id="impuestoVentas" type="number" value="0"></div>
+    <button class="btn secondary" id="btnSimular">Simular</button>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="muted">Ingresos</div><div class="v" id="simIngresos">—</div></div>
+      <div class="kpi"><div class="muted">Ganancia total</div><div class="v" id="simGanancia">—</div></div>
+      <div class="kpi"><div class="muted">Punto de equilibrio</div><div class="v" id="simBreakEven">—</div></div>
+    </div>
+  </section>
+
+  <!-- Sobres -->
+  <section class="card" id="sobres" style="display:none">
+    <h2>Distribución por venta (sobres)</h2>
+    <div class="row"><label>Reposición %</label><input id="pRepo" type="number" value="30"></div>
+    <div class="row"><label>Ahorro %</label><input id="pAhorro" type="number" value="20"></div>
+    <div class="row"><label>Emergencias %</label><input id="pEmer" type="number" value="10"></div>
+    <div class="row"><label>Donar %</label><input id="pDonar" type="number" value="0"></div>
+    <button class="btn secondary" id="btnSobres">Aplicar</button>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="muted">Reposición/venta</div><div class="v" id="kvRepo">—</div></div>
+      <div class="kpi"><div class="muted">Ahorro/venta</div><div class="v" id="kvAhorro">—</div></div>
+      <div class="kpi"><div class="muted">Emergencias/venta</div><div class="v" id="kvEmer">—</div></div>
+    </div>
+  </section>
+</main>
+
+<footer>Hecho para niños y familias 💛 — <a href="#" id="guia">Guía para papás</a></footer>
+
+<!-- Ayuda -->
+<aside class="help" id="help"><h4>Glosario</h4><p id="helpC">Pulsa los botones “?” para ver ayudas en contexto.</p></aside>
+
+<script>
+  const $ = s=>document.querySelector(s), $$ = s=>Array.from(document.querySelectorAll(s));
+  const currency = n => isNaN(n) ? "—" : n.toLocaleString("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0});
+  if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js"))}
+
+  // Navegación
+  $("#goStart").onclick=()=>{show("asistente")}; $("#goHow").onclick=()=>alert("El tour te enseña a calcular costos, simular y ahorrar.");
+  function show(id){["landing","asistente","simulacion","sobres"].forEach(x=>$("#"+x).style.display="none"); $("#"+id).style.display=""; window.scrollTo({top:0,behavior:"smooth"})}
+
+  // Ayuda
+  $("#btnHelp").onclick=()=>$("#help").classList.toggle("show");
+
+  // Insumos
+  const insumosDiv=$("#insumos");
+  function addRow(d={nombre:"",precioPaquete:0,porciones:1,unidadesPorOblea:1}){
+    const row=document.createElement("div");
+    row.className="insumo";
+    row.innerHTML=`
+      <input class="nombre" placeholder="Oblea / Arequipe / Queso" value="${d.nombre}">
+      <input class="precio" type="number" step="50" value="${d.precioPaquete}">
+      <input class="porciones" type="number" min="1" step="1" value="${d.porciones}">
+      <input class="uso" type="number" min="0" step="0.1" value="${d.unidadesPorOblea}">
+      <button class="rm" title="Quitar">✕</button>`;
+    row.querySelector(".rm").onclick=()=>row.remove();
+    insumosDiv.appendChild(row);
+  }
+  [
+    {nombre:"Oblea",precioPaquete:12000,porciones:50,unidadesPorOblea:1},
+    {nombre:"Arequipe",precioPaquete:18000,porciones:40,unidadesPorOblea:1},
+    {nombre:"Queso rallado",precioPaquete:14000,porciones:35,unidadesPorOblea:1},
+    {nombre:"Servilleta",precioPaquete:6000,porciones:200,unidadesPorOblea:1},
+    {nombre:"Empaque",precioPaquete:10000,porciones:100,unidadesPorOblea:1},
+  ].forEach(addRow);
+  $("#addInsumo").onclick=()=>addRow();
+
+  // Cálculos
+  let costoUnitario=0, precioVenta=6000, gananciaUnit=0;
+  function leerInsumos(){return $$("#insumos .insumo").map(r=>({precio:+r.querySelector(".precio").value||0, porciones:+r.querySelector(".porciones").value||1, uso:+r.querySelector(".uso").value||0}))}
+  function calcular(){
+    const data=leerInsumos();
+    const mermaPct=+$("#mermaPct").value||0, transporte=+$("#transporte").value||0, transpUnits=Math.max(1,+$("#transporteUnidades").value||1);
+    const manoHora=+$("#manoHora").value||0, minPorOblea=+$("#minPorOblea").value||0, pv=+$("#precioVenta").value||0, mo=+$("#margenObjetivo").value||0;
+    let costoInsumos=0; data.forEach(i=>{const porcion=i.porciones>0?(i.precio/i.porciones):0; costoInsumos+=porcion*i.uso});
+    const costoConMerma=costoInsumos*(1+mermaPct/100), transpUnit=transporte/transpUnits, manoUnit=(manoHora/60)*minPorOblea;
+    costoUnitario=Math.max(0,costoConMerma+transpUnit+manoUnit);
+    const precioSugerido=costoUnitario*(1+mo/100);
+    gananciaUnit=Math.max(0,pv-costoUnitario);
+    const margenReal=pv>0?(gananciaUnit/pv)*100:0;
+    $("#kCosto").textContent=currency(Math.round(costoUnitario));
+    $("#kSugerido").textContent=currency(Math.round(precioSugerido));
+    $("#kGanancia").textContent=currency(Math.round(gananciaUnit));
+    $("#kMargen").textContent=isFinite(margenReal)?margenReal.toFixed(0)+"%":"—";
+    precioVenta=pv;
+    show("simulacion");
+  }
+  $("#btnCalcular").onclick=calcular;
+
+  // Simulación
+  function simular(){
+    const u=+$("#simUnidades").value||0, fijos=+$("#costosFijos").value||0, imp=(+$("#impuestoVentas").value||0)/100;
+    const precioNeto=precioVenta*(1-imp), ingresos=precioVenta*u, costoVar=costoUnitario*u, impTotal=(precioVenta-precioNeto)*u, ganancia=ingresos-costoVar-fijos;
+    const contrib=Math.max(0, precioNeto-costoUnitario), be=contrib>0?Math.ceil(fijos/contrib):Infinity;
+    $("#simIngresos").textContent=currency(Math.round(ingresos));
+    $("#simGanancia").textContent=isFinite(ganancia)?currency(Math.round(ganancia)):"—";
+    $("#simBreakEven").textContent=isFinite(be)?be+" obleas":"—";
+  }
+  $("#btnSimular").onclick=()=>{simular(); show("sobres")};
+
+  // Sobres
+  $("#btnSobres").onclick=()=>{
+    const pRepo=+$("#pRepo").value||0, pAh=+$("#pAhorro").value||0, pEm=+$("#pEmer").value||0, pDo=+$("#pDonar").value||0;
+    if(pRepo+pAh+pEm+pDo>100){alert("La suma de porcentajes no puede pasar de 100%.");return;}
+    document.querySelector("#kvRepo").textContent=currency(Math.round(gananciaUnit*pRepo/100));
+    document.querySelector("#kvAhorro").textContent=currency(Math.round(gananciaUnit*pAh/100));
+    document.querySelector("#kvEmer").textContent=currency(Math.round(gananciaUnit*pEm/100));
+  };
+</script>
+</body>
+</html>
