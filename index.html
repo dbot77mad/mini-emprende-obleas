@@ -1,65 +1,1385 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MiniEmprende - Obleas</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MiniEmprende - Obleas</title>
 
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#ffcc00">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-</head>
-<body>
-  <h1>MiniEmprende</h1>
-  <p>Elige tu modelo de negocio:</p>
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#ffcc00" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
 
-  <button onclick="setMode('fabricar')">Fabricar</button>
-  <button onclick="setMode('revender')">Revender</button>
-  <button onclick="setMode('servicio')">Servicio</button>
+    <!-- TailwindCSS for quick styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-50 min-h-screen">
+    <div id="root"></div>
 
-  <div id="form"></div>
+    <script type="module">
+      import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.2.0";
+      import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+      import {
+        getAuth,
+        signInAnonymously,
+        signInWithCustomToken,
+        onAuthStateChanged,
+      } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+      import {
+        getFirestore,
+        collection,
+        onSnapshot,
+        doc,
+        addDoc,
+        updateDoc,
+        deleteDoc,
+        query,
+        getDoc,
+        writeBatch,
+        setDoc,
+      } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-  <script>
-    let mode = 'fabricar';
+      // --- Constantes Globales (Proporcionadas por el entorno) ---
+      const appId = typeof __app_id !== "undefined" ? __app_id : "default-app-id";
+      const firebaseConfig =
+        typeof __firebase_config !== "undefined" ? JSON.parse(__firebase_config) : {};
+      const initialAuthToken =
+        typeof __initial_auth_token !== "undefined" ? __initial_auth_token : null;
 
-    function setMode(m) {
-      mode = m;
-      renderForm();
-    }
+      // Definición de colecciones
+      const COLLECTIONS = {
+        orders: "MADtortillas_Orders",
+        customers: "MADtortillas_Customers",
+        products: "MADtortillas_Products",
+      };
 
-    function renderForm() {
-      let html = '';
-      if (mode === 'fabricar') {
-        html = `
-          <h2>Fabricar producto</h2>
-          <label>Insumos: <input type="number" id="insumos"></label><br>
-          <label>Mano de obra (min/unidad): <input type="number" id="mano"></label><br>
-        `;
-      } else if (mode === 'revender') {
-        html = `
-          <h2>Revender producto</h2>
-          <label>Precio compra: <input type="number" id="precio"></label><br>
-          <label>Envío por unidad: <input type="number" id="envio"></label><br>
-          <label>Aduana (%): <input type="number" id="aduana"></label><br>
-        `;
-      } else {
-        html = `
-          <h2>Servicio</h2>
-          <label>Horas por servicio: <input type="number" id="horas"></label><br>
-          <label>Valor por hora: <input type="number" id="valorHora"></label><br>
-          <label>Transporte por servicio: <input type="number" id="transporte"></label><br>
-        `;
-      }
-      html += `<button onclick="calcular()">Calcular</button>`;
-      document.getElementById('form').innerHTML = html;
-    }
+      // Data inicial para productos (ACTUALIZADO con precios y variedades de la hoja de cálculo)
+      const INITIAL_PRODUCTS = [
+        {
+          id: "chamberi",
+          name: "Chamberí",
+          price: 65000,
+          description: "Tortilla de Patata estilo Chamberí",
+          isDefault: true,
+        },
+        {
+          id: "malasana",
+          name: "Malasaña",
+          price: 75000,
+          description: "Tortilla con cebolla caramelizada",
+          isDefault: true,
+        },
+        {
+          id: "salamanca",
+          name: "Salamanca",
+          price: 65000,
+          description: "Tortilla de Patata estilo Salamanca (Nueva)",
+          isDefault: true,
+        },
+        {
+          id: "lavapies",
+          name: "Lavapiés",
+          price: 75000,
+          description: "Tortilla de Patata estilo Lavapiés (Nueva)",
+          isDefault: true,
+        },
+        {
+          id: "la-latina",
+          name: "La Latina",
+          price: 75000,
+          description: "Tortilla de Patata estilo La Latina (Nueva)",
+          isDefault: true,
+        },
+        {
+          id: "chueca",
+          name: "Chueca",
+          price: 85000,
+          description: "Tortilla de Patata Gourmet con trufa",
+          isDefault: true,
+        },
+      ];
 
-    function calcular() {
-      alert("Cálculo para: " + mode + " (lógica pendiente)");
-    }
+      // Pedidos iniciales basados en la hoja de cálculo para poblar la BBDD
+      const INITIAL_ORDERS_SEED = [
+        {
+          customer: "monica echeverry",
+          orderDate: "2025-10-28",
+          contact: "monica",
+          productId: "chamberi",
+          productName: "Chamberí",
+          quantity: 0.6,
+          unitPrice: 65000,
+          totalPrice: 39000,
+          deliveryDate: "2025-10-31",
+          paymentStatus: "Pagado",
+          notes: "entregado",
+        },
+        {
+          customer: "merce bravo",
+          orderDate: "2025-10-31",
+          contact: "merce",
+          productId: "malasana",
+          productName: "Malasaña",
+          quantity: 1,
+          unitPrice: 75000,
+          totalPrice: 75000,
+          deliveryDate: "2025-11-01",
+          paymentStatus: "Pagado",
+          notes: "entregado",
+        },
+      ];
 
-    renderForm();
-  </script>
-</body>
+      // Definición de las pestañas
+      const TABS = {
+        ORDERS: "Pedidos",
+        CUSTOMERS: "Clientes",
+        PRODUCTS: "Productos",
+      };
+
+      // Helper para convertir el formato de la moneda
+      const formatCurrency = (amount) => {
+        return new Intl.NumberFormat("es-ES", {
+          style: "currency",
+          currency: "EUR",
+          minimumFractionDigits: 2,
+        }).format(amount);
+      };
+
+      // Componente para mostrar mensajes modales (reemplazo de alert/confirm)
+      const Modal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Aceptar" }) => {
+        if (!isOpen) return null;
+        return (
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all duration-300 scale-100">
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{title}</h3>
+                <p className="text-gray-600 mb-6">{message}</p>
+                <div className="flex justify-end space-x-3">
+                  {onCancel && (
+                    <button
+                      onClick={onCancel}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  <button
+                    onClick={onConfirm}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 transition"
+                  >
+                    {confirmText}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const FormInput = ({
+        label,
+        name,
+        value,
+        onChange,
+        type = "text",
+        readOnly = false,
+        className = "",
+        ...props
+      }) => (
+        <div>
+          <label htmlFor={name} className="block text-sm font-medium text-gray-700">
+            {label}
+          </label>
+          <input
+            type={type}
+            name={name}
+            id={name}
+            value={value}
+            onChange={onChange}
+            readOnly={readOnly}
+            className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 text-gray-900 border ${className} focus:border-indigo-500 focus:ring-indigo-500`}
+            {...props}
+          />
+        </div>
+      );
+
+      const FormSelect = ({ label, name, value, onChange, options }) => (
+        <div>
+          <label htmlFor={name} className="block text-sm font-medium text-gray-700">
+            {label}
+          </label>
+          <select
+            name={name}
+            id={name}
+            value={value}
+            onChange={onChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 text-gray-900 border focus:border-indigo-500 focus:ring-indigo-500 capitalize"
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+
+      const FormTextArea = ({ label, name, value, onChange, rows, ...props }) => (
+        <div>
+          <label htmlFor={name} className="block text-sm font-medium text-gray-700">
+            {label}
+          </label>
+          <textarea
+            name={name}
+            id={name}
+            rows={rows}
+            value={value}
+            onChange={onChange}
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 text-gray-900 border focus:border-indigo-500 focus:ring-indigo-500"
+            {...props}
+          />
+        </div>
+      );
+
+      const StatCard = ({ title, value, icon, color = "text-gray-800" }) => (
+        <div className="bg-white p-5 rounded-xl shadow-md border border-gray-100">
+          <div className="flex items-center">
+            <div className={`text-3xl mr-3 ${color}`}>{icon}</div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">{title}</p>
+              <p className={`text-xl font-bold ${color}`}>{value}</p>
+            </div>
+          </div>
+        </div>
+      );
+
+      const OrdersManagement = ({
+        db,
+        userId,
+        appId,
+        orders,
+        products,
+        loading,
+        setLoading,
+        setIsModalOpen,
+        setModalContent,
+        ordersSummary,
+      }) => {
+        const productOptions = useMemo(() => {
+          return products.map((p) => ({ value: p.id, label: p.name }));
+        }, [products]);
+
+        const productPricesMap = useMemo(() => {
+          return products.reduce((acc, p) => {
+            acc[p.id] = p.price;
+            return acc;
+          }, {});
+        }, [products]);
+
+        const defaultProductId = productOptions.length > 0 ? productOptions[0].value : "";
+
+        const [newOrder, setNewOrder] = useState({
+          customer: "",
+          orderDate: new Date().toISOString().split("T")[0],
+          contact: "",
+          productId: defaultProductId,
+          productName: productOptions.length > 0 ? productOptions[0].label : "",
+          quantity: 1,
+          unitPrice: productPricesMap[defaultProductId] || 0,
+          totalPrice: (productPricesMap[defaultProductId] || 0).toFixed(2),
+          deliveryDate: new Date().toISOString().split("T")[0],
+          paymentStatus: "Pendiente",
+          notes: "",
+        });
+
+        useEffect(() => {
+          const quantity = parseFloat(newOrder.quantity) || 0;
+          const unitPrice = parseFloat(newOrder.unitPrice) || 0;
+          setNewOrder((prev) => ({
+            ...prev,
+            totalPrice: (quantity * unitPrice).toFixed(2),
+          }));
+        }, [newOrder.quantity, newOrder.unitPrice]);
+
+        useEffect(() => {
+          if (products.length > 0 && newOrder.productId) {
+            const selectedProduct = products.find((p) => p.id === newOrder.productId);
+
+            let price = selectedProduct ? selectedProduct.price : 0;
+            let name = selectedProduct ? selectedProduct.name : "";
+
+            if (!selectedProduct && defaultProductId) {
+              price = productPricesMap[defaultProductId] || 0;
+              name = productOptions.length > 0 ? productOptions[0].label : "";
+              setNewOrder((prev) => ({
+                ...prev,
+                productId: defaultProductId,
+                productName: name,
+                unitPrice: price,
+              }));
+            } else if (selectedProduct) {
+              setNewOrder((prev) => ({
+                ...prev,
+                productName: name,
+                unitPrice: price,
+              }));
+            }
+          }
+        }, [products, productPricesMap, defaultProductId]);
+
+        const handleProductChange = (e) => {
+          const productId = e.target.value;
+          const product = products.find((p) => p.id === productId);
+          const unitPrice = product ? product.price : 0;
+          const productName = product ? product.name : "";
+
+          setNewOrder((prev) => ({
+            ...prev,
+            productId: productId,
+            productName: productName,
+            unitPrice: unitPrice,
+          }));
+        };
+
+        const handleFormChange = (e) => {
+          const { name, value } = e.target;
+          setNewOrder((prev) => ({ ...prev, [name]: value }));
+        };
+
+        const handleFloatChange = (e) => {
+          const { name, value } = e.target;
+          const numValue = value === "" ? 0 : Math.max(0, parseFloat(value));
+          setNewOrder((prev) => ({ ...prev, [name]: numValue }));
+        };
+
+        const handleAddOrder = async (e) => {
+          e.preventDefault();
+          if (!db || !userId) {
+            setModalContent({
+              title: "Error de Sistema",
+              message: "La base de datos no está lista. Por favor, espera o recarga.",
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+            return;
+          }
+
+          const requiredFields = ["customer", "contact", "productId", "quantity", "deliveryDate"];
+          const missing = requiredFields.filter(
+            (key) => !newOrder[key] || (key === "quantity" && newOrder[key] <= 0),
+          );
+
+          if (missing.length > 0) {
+            setModalContent({
+              title: "Campos Faltantes",
+              message: `Por favor, completa los siguientes campos: ${missing.join(", ")}`,
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const ordersPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.orders}`;
+            await addDoc(collection(db, ordersPath), {
+              ...newOrder,
+              unitPrice: Number(newOrder.unitPrice),
+              quantity: Number(newOrder.quantity),
+              totalPrice: Number(newOrder.totalPrice),
+            });
+
+            setNewOrder((prev) => ({
+              ...prev,
+              customer: "",
+              contact: "",
+              quantity: 1,
+              totalPrice: Number(prev.unitPrice).toFixed(2),
+              deliveryDate: new Date().toISOString().split("T")[0],
+              notes: "",
+            }));
+          } catch (e) {
+            console.error("Error al añadir documento:", e);
+            setModalContent({
+              title: "Error al Guardar",
+              message: `No se pudo guardar el pedido: ${e.message}`,
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const togglePaymentStatus = (order) => {
+          setModalContent({
+            title: order.paymentStatus === "Pagado" ? "Marcar como Pendiente" : "Marcar como Pagado",
+            message: `¿Estás seguro de que quieres cambiar el estado de pago del pedido de ${order.customer} por ${formatCurrency(order.totalPrice)}?`,
+            confirmText: order.paymentStatus === "Pagado" ? "Pendiente" : "Pagado",
+            onConfirm: async () => {
+              setIsModalOpen(false);
+              if (!db || !userId) return;
+
+              setLoading(true);
+              try {
+                const newStatus = order.paymentStatus === "Pagado" ? "Pendiente" : "Pagado";
+                const orderRef = doc(
+                  db,
+                  `/artifacts/${appId}/users/${userId}/${COLLECTIONS.orders}`,
+                  order.id,
+                );
+                await updateDoc(orderRef, { paymentStatus: newStatus });
+              } catch (e) {
+                console.error("Error al actualizar documento:", e);
+                setModalContent({
+                  title: "Error de Actualización",
+                  message: `No se pudo actualizar el estado de pago: ${e.message}`,
+                  onConfirm: () => setIsModalOpen(false),
+                });
+                setIsModalOpen(true);
+              } finally {
+                setLoading(false);
+              }
+            },
+            onCancel: () => setIsModalOpen(false),
+          });
+          setIsModalOpen(true);
+        };
+
+        const handleDeleteOrder = (orderId, customerName) => {
+          setModalContent({
+            title: "Confirmar Eliminación",
+            message: `¿Estás seguro de que deseas eliminar permanentemente el pedido de ${customerName}? Esta acción no se puede deshacer.`,
+            confirmText: "Eliminar",
+            onConfirm: async () => {
+              setIsModalOpen(false);
+              if (!db || !userId) return;
+
+              setLoading(true);
+              try {
+                const orderRef = doc(
+                  db,
+                  `/artifacts/${appId}/users/${userId}/${COLLECTIONS.orders}`,
+                  orderId,
+                );
+                await deleteDoc(orderRef);
+              } catch (e) {
+                console.error("Error al eliminar documento:", e);
+                setModalContent({
+                  title: "Error de Eliminación",
+                  message: `No se pudo eliminar el pedido: ${e.message}`,
+                  onConfirm: () => setIsModalOpen(false),
+                });
+                setIsModalOpen(true);
+              } finally {
+                setLoading(false);
+              }
+            },
+            onCancel: () => setIsModalOpen(false),
+          });
+          setIsModalOpen(true);
+        };
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+              <StatCard title="Total de Pedidos" value={ordersSummary.totalOrders} icon="📦" />
+              <StatCard
+                title="Ingresos Totales"
+                value={ordersSummary.totalRevenue}
+                icon="💰"
+                color="text-green-600"
+              />
+              <StatCard
+                title="Ingresos Pagados"
+                value={ordersSummary.paidRevenue}
+                icon="✅"
+                color="text-indigo-600"
+              />
+              <StatCard
+                title="Pedidos Pendientes"
+                value={ordersSummary.pendingOrders}
+                icon="🔔"
+                color="text-yellow-600"
+              />
+            </div>
+
+            <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit sticky top-8">
+              <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                Registrar Nuevo Pedido
+              </h2>
+              <form onSubmit={handleAddOrder} className="space-y-4">
+                <FormInput
+                  label="Cliente"
+                  name="customer"
+                  value={newOrder.customer}
+                  onChange={handleFormChange}
+                  required
+                />
+                <FormInput
+                  label="Contacto"
+                  name="contact"
+                  value={newOrder.contact}
+                  onChange={handleFormChange}
+                  placeholder="Teléfono o Email"
+                  required
+                />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormInput
+                    label="Fecha de Pedido"
+                    name="orderDate"
+                    type="date"
+                    value={newOrder.orderDate}
+                    onChange={handleFormChange}
+                    required
+                  />
+                  <FormInput
+                    label="Fecha de Entrega"
+                    name="deliveryDate"
+                    type="date"
+                    value={newOrder.deliveryDate}
+                    onChange={handleFormChange}
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2">
+                    <FormSelect
+                      label="Producto"
+                      name="productId"
+                      value={newOrder.productId}
+                      onChange={handleProductChange}
+                      options={productOptions}
+                    />
+                  </div>
+                  <div>
+                    <FormInput
+                      label="Precio Unitario"
+                      name="unitPrice"
+                      type="number"
+                      step="0.01"
+                      value={newOrder.unitPrice.toFixed(2)}
+                      onChange={handleFormChange}
+                      readOnly={true}
+                      className="bg-gray-100 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormInput
+                    label="Cantidad (uds/kg)"
+                    name="quantity"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={newOrder.quantity}
+                    onChange={handleFloatChange}
+                    required
+                  />
+                  <FormInput
+                    label="Precio Total (EUR)"
+                    name="totalPrice"
+                    type="number"
+                    value={Number(newOrder.totalPrice).toFixed(2)}
+                    readOnly
+                    className="bg-indigo-50 text-indigo-700 font-bold"
+                  />
+                </div>
+
+                <FormTextArea
+                  label="Notas"
+                  name="notes"
+                  value={newOrder.notes}
+                  onChange={handleFormChange}
+                  rows="3"
+                />
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150 disabled:bg-indigo-300 flex items-center justify-center"
+                  disabled={loading || products.length === 0}
+                >
+                  {loading ? (
+                    <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                  ) : (
+                    "Guardar Pedido"
+                  )}
+                </button>
+              </form>
+            </div>
+
+            <div className="lg:col-span-2">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Historial de Pedidos</h2>
+              {loading && (
+                <div className="text-center p-10 bg-white rounded-xl shadow-lg">
+                  <p className="text-indigo-600 font-medium animate-pulse">Cargando datos...</p>
+                </div>
+              )}
+              {!loading && orders.length === 0 && (
+                <div className="text-center p-10 bg-white rounded-xl shadow-lg">
+                  <p className="text-gray-500">Aún no hay pedidos registrados. ¡Agrega uno!</p>
+                </div>
+              )}
+              {!loading && orders.length > 0 && (
+                <div className="overflow-x-auto bg-white rounded-xl shadow-lg">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {["Cliente", "Producto", "Cantidad", "Total", "Entrega", "Estado", "Acciones"].map(
+                          (header) => (
+                            <th
+                              key={header}
+                              className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                            >
+                              {header}
+                            </th>
+                          ),
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {orders.map((order) => (
+                        <tr key={order.id} className="hover:bg-indigo-50 transition duration-100">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {order.customer}
+                            <div className="text-xs text-gray-500 truncate w-32">{order.contact}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {order.productName || order.productId}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.quantity}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-indigo-600">
+                            {formatCurrency(order.totalPrice)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{order.deliveryDate}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              onClick={() => togglePaymentStatus(order)}
+                              className={`cursor-pointer px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full transition duration-200 ${
+                                order.paymentStatus === "Pagado"
+                                  ? "bg-green-100 text-green-800 hover:bg-green-200"
+                                  : "bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                              }`}
+                            >
+                              {order.paymentStatus}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <button
+                              onClick={() => handleDeleteOrder(order.id, order.customer)}
+                              className="text-red-600 hover:text-red-900 ml-4 p-1 rounded-full hover:bg-red-50"
+                              aria-label={`Eliminar pedido de ${order.customer}`}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-5 w-5"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 10-2 0v6a1 1 0 102 0V8z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const ProductsManagement = ({
+        db,
+        userId,
+        appId,
+        products,
+        loading,
+        setLoading,
+        setIsModalOpen,
+        setModalContent,
+      }) => {
+        const [newProduct, setNewProduct] = useState({ name: "", price: 0, description: "" });
+
+        const handleAddProduct = async (e) => {
+          e.preventDefault();
+          if (!db || !userId) return;
+          if (!newProduct.name || newProduct.price <= 0) {
+            setModalContent({
+              title: "Validación",
+              message: "El nombre y el precio deben ser válidos.",
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const productsPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.products}`;
+            const productId = newProduct.name
+              .toLowerCase()
+              .replace(/\s+/g, "")
+              .replace(/[^\w-]/g, "");
+            const productRef = doc(db, productsPath, productId);
+
+            await setDoc(productRef, {
+              ...newProduct,
+              id: productId,
+              price: Number(newProduct.price),
+              isDefault: false,
+            });
+
+            setNewProduct({ name: "", price: 0, description: "" });
+          } catch (e) {
+            console.error("Error al añadir producto:", e);
+            setModalContent({
+              title: "Error",
+              message: `No se pudo guardar el producto: ${e.message}`,
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleDeleteProduct = (productId, productName) => {
+          setModalContent({
+            title: "Confirmar Eliminación",
+            message: `¿Estás seguro de que deseas eliminar el producto '${productName}'?`,
+            confirmText: "Eliminar",
+            onConfirm: async () => {
+              setIsModalOpen(false);
+              if (!db || !userId) return;
+
+              setLoading(true);
+              try {
+                const productRef = doc(
+                  db,
+                  `/artifacts/${appId}/users/${userId}/${COLLECTIONS.products}`,
+                  productId,
+                );
+                await deleteDoc(productRef);
+              } catch (e) {
+                console.error("Error al eliminar producto:", e);
+                setModalContent({
+                  title: "Error",
+                  message: `No se pudo eliminar el producto: ${e.message}`,
+                  onConfirm: () => setIsModalOpen(false),
+                });
+                setIsModalOpen(true);
+              } finally {
+                setLoading(false);
+              }
+            },
+            onCancel: () => setIsModalOpen(false),
+          });
+          setIsModalOpen(true);
+        };
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit sticky top-8">
+              <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                Crear Nuevo Producto
+              </h2>
+              <form onSubmit={handleAddProduct} className="space-y-4">
+                <FormInput
+                  label="Nombre del Producto"
+                  name="name"
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, name: e.target.value }))}
+                  required
+                />
+                <FormInput
+                  label="Precio (EUR)"
+                  name="price"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={newProduct.price}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, price: e.target.value }))}
+                  required
+                />
+                <FormTextArea
+                  label="Descripción"
+                  name="description"
+                  value={newProduct.description}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, description: e.target.value }))}
+                  rows="3"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition disabled:bg-green-300"
+                  disabled={loading}
+                >
+                  {loading ? "Guardando..." : "Guardar Producto"}
+                </button>
+              </form>
+            </div>
+
+            <div className="lg:col-span-2">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Lista de Precios y Productos</h2>
+              <div className="overflow-x-auto bg-white rounded-xl shadow-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Nombre
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Precio
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Descripción
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {products.map((product) => (
+                      <tr key={product.id} className="hover:bg-green-50 transition duration-100">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 capitalize">
+                          {product.name}
+                          {product.isDefault && (
+                            <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-indigo-100 text-indigo-800">
+                              Base
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-600">
+                          {formatCurrency(product.price)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {product.description || "Sin descripción"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleDeleteProduct(product.id, product.name)}
+                            className="text-red-600 hover:text-red-900 ml-4 p-1 rounded-full hover:bg-red-50 disabled:opacity-50"
+                            disabled={product.isDefault}
+                            aria-label={`Eliminar producto ${product.name}`}
+                            title={
+                              product.isDefault
+                                ? "No se puede eliminar un producto base"
+                                : "Eliminar producto"
+                            }
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-5 w-5"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 10-2 0v6a1 1 0 102 0V8z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const CustomersManagement = ({
+        db,
+        userId,
+        appId,
+        customers,
+        loading,
+        setLoading,
+        setIsModalOpen,
+        setModalContent,
+      }) => {
+        const [newCustomer, setNewCustomer] = useState({ name: "", contact: "", notes: "" });
+
+        const handleAddCustomer = async (e) => {
+          e.preventDefault();
+          if (!db || !userId) return;
+          if (!newCustomer.name || !newCustomer.contact) {
+            setModalContent({
+              title: "Validación",
+              message: "El nombre y el contacto son obligatorios.",
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const customersPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.customers}`;
+            await addDoc(collection(db, customersPath), newCustomer);
+            setNewCustomer({ name: "", contact: "", notes: "" });
+          } catch (e) {
+            console.error("Error al añadir cliente:", e);
+            setModalContent({
+              title: "Error",
+              message: `No se pudo guardar el cliente: ${e.message}`,
+              onConfirm: () => setIsModalOpen(false),
+            });
+            setIsModalOpen(true);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleDeleteCustomer = (customerId, customerName) => {
+          setModalContent({
+            title: "Confirmar Eliminación",
+            message: `¿Estás seguro de que deseas eliminar el cliente '${customerName}'?`,
+            confirmText: "Eliminar",
+            onConfirm: async () => {
+              setIsModalOpen(false);
+              if (!db || !userId) return;
+
+              setLoading(true);
+              try {
+                const customerRef = doc(
+                  db,
+                  `/artifacts/${appId}/users/${userId}/${COLLECTIONS.customers}`,
+                  customerId,
+                );
+                await deleteDoc(customerRef);
+              } catch (e) {
+                console.error("Error al eliminar cliente:", e);
+                setModalContent({
+                  title: "Error",
+                  message: `No se pudo eliminar el cliente: ${e.message}`,
+                  onConfirm: () => setIsModalOpen(false),
+                });
+                setIsModalOpen(true);
+              } finally {
+                setLoading(false);
+              }
+            },
+            onCancel: () => setIsModalOpen(false),
+          });
+          setIsModalOpen(true);
+        };
+
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit sticky top-8">
+              <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                Registrar Nuevo Cliente
+              </h2>
+              <form onSubmit={handleAddCustomer} className="space-y-4">
+                <FormInput
+                  label="Nombre del Cliente"
+                  name="name"
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer((c) => ({ ...c, name: e.target.value }))}
+                  required
+                />
+                <FormInput
+                  label="Contacto (Teléfono/Email)"
+                  name="contact"
+                  value={newCustomer.contact}
+                  onChange={(e) => setNewCustomer((c) => ({ ...c, contact: e.target.value }))}
+                  required
+                />
+                <FormTextArea
+                  label="Notas del Cliente"
+                  name="notes"
+                  value={newCustomer.notes}
+                  onChange={(e) => setNewCustomer((c) => ({ ...c, notes: e.target.value }))}
+                  rows="3"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition disabled:bg-blue-300"
+                  disabled={loading}
+                >
+                  {loading ? "Guardando..." : "Guardar Cliente"}
+                </button>
+              </form>
+            </div>
+
+            <div className="lg:col-span-2">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Base de Datos de Clientes</h2>
+              <div className="overflow-x-auto bg-white rounded-xl shadow-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Nombre
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Contacto
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Notas
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {customers.map((customer) => (
+                      <tr key={customer.id} className="hover:bg-blue-50 transition duration-100">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {customer.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {customer.contact}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-xs">
+                          {customer.notes || "N/A"}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            onClick={() => handleDeleteCustomer(customer.id, customer.name)}
+                            className="text-red-600 hover:text-red-900 ml-4 p-1 rounded-full hover:bg-red-50"
+                            aria-label={`Eliminar cliente ${customer.name}`}
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-5 w-5"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 10-2 0v6a1 1 0 102 0V8z"
+                                clipRule="evenodd"
+                              />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const App = () => {
+        const [db, setDb] = useState(null);
+        const [userId, setUserId] = useState(null);
+        const [isAuthReady, setIsAuthReady] = useState(false);
+        const [activeTab, setActiveTab] = useState(TABS.ORDERS);
+
+        const [orders, setOrders] = useState([]);
+        const [customers, setCustomers] = useState([]);
+        const [products, setProducts] = useState([]);
+
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [isModalOpen, setIsModalOpen] = useState(false);
+        const [modalContent, setModalContent] = useState({});
+
+        useEffect(() => {
+          try {
+            if (Object.keys(firebaseConfig).length === 0) {
+              throw new Error("La configuración de Firebase no está disponible. Usando datos mock.");
+            }
+
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const firebaseAuth = getAuth(app);
+
+            setDb(firestore);
+
+            const signIn = async () => {
+              try {
+                if (initialAuthToken) {
+                  await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                } else {
+                  await signInAnonymously(firebaseAuth);
+                }
+              } catch (e) {
+                console.error("Error during authentication:", e);
+                setError("Error de autenticación inicial.");
+                setIsAuthReady(true);
+              }
+            };
+
+            signIn();
+
+            onAuthStateChanged(firebaseAuth, (user) => {
+              if (user) {
+                setUserId(user.uid);
+              } else {
+                setUserId(null);
+              }
+              setIsAuthReady(true);
+            });
+          } catch (e) {
+            console.error("Firebase setup error:", e);
+            setError(e.message);
+            setIsAuthReady(true);
+          }
+        }, []);
+
+        useEffect(() => {
+          if (db && userId) {
+            setLoading(true);
+            const unsubscribes = [];
+
+            const productsPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.products}`;
+            const productsQ = query(collection(db, productsPath));
+            unsubscribes.push(
+              onSnapshot(
+                productsQ,
+                async (snapshot) => {
+                  const productsData = snapshot.docs.map((docSnap) => ({
+                    id: docSnap.id,
+                    ...docSnap.data(),
+                    price: Number(docSnap.data().price) || 0,
+                  }));
+
+                  if (productsData.length === 0) {
+                    const batch = writeBatch(db);
+                    INITIAL_PRODUCTS.forEach((p) => {
+                      const docRef = doc(db, productsPath, p.id);
+                      batch.set(docRef, p);
+                    });
+                    try {
+                      await batch.commit();
+                    } catch (e) {
+                      console.error("Error committing initial products batch:", e);
+                    }
+                  } else {
+                    setProducts(productsData);
+                  }
+                  setLoading(false);
+                },
+                (e) => console.error("Error products listener:", e),
+              ),
+            );
+
+            const customersPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.customers}`;
+            const customersQ = query(collection(db, customersPath));
+            unsubscribes.push(
+              onSnapshot(
+                customersQ,
+                (snapshot) => {
+                  const customersData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+                  setCustomers(customersData);
+                },
+                (e) => console.error("Error customers listener:", e),
+              ),
+            );
+
+            const ordersPath = `/artifacts/${appId}/users/${userId}/${COLLECTIONS.orders}`;
+            const ordersQ = query(collection(db, ordersPath));
+            unsubscribes.push(
+              onSnapshot(
+                ordersQ,
+                async (snapshot) => {
+                  const ordersData = snapshot.docs.map((docSnap) => ({
+                    id: docSnap.id,
+                    ...docSnap.data(),
+                    quantity: Number(docSnap.data().quantity) || 0,
+                    totalPrice: Number(docSnap.data().totalPrice) || 0,
+                  }));
+
+                  if (snapshot.empty && products.length > 0) {
+                    const seedDocRef = doc(db, ordersPath, "initial_orders_seeded_flag");
+                    const seedDoc = await getDoc(seedDocRef);
+
+                    if (!seedDoc.exists()) {
+                      const batch = writeBatch(db);
+
+                      INITIAL_ORDERS_SEED.forEach((order) => {
+                        const newDocRef = doc(collection(db, ordersPath));
+                        batch.set(newDocRef, order);
+                      });
+
+                      batch.set(seedDocRef, { seeded: true, timestamp: new Date().toISOString() });
+
+                      try {
+                        await batch.commit();
+                      } catch (e) {
+                        console.error("Error committing initial orders batch:", e);
+                      }
+                    }
+                  }
+
+                  setOrders(
+                    ordersData
+                      .filter((order) => order.id !== "initial_orders_seeded_flag")
+                      .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate)),
+                  );
+                },
+                (e) => console.error("Error orders listener:", e),
+              ),
+            );
+
+            return () => unsubscribes.forEach((unsub) => unsub());
+          } else if (isAuthReady) {
+            setLoading(false);
+          }
+        }, [db, userId, isAuthReady, products.length]);
+
+        const ordersSummary = useMemo(() => {
+          const totalOrders = orders.length;
+          const totalRevenue = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+          const paidRevenue = orders
+            .filter((order) => order.paymentStatus === "Pagado")
+            .reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+          const pendingOrders = orders.filter((order) => order.paymentStatus === "Pendiente").length;
+
+          return {
+            totalOrders,
+            totalRevenue: formatCurrency(totalRevenue),
+            paidRevenue: formatCurrency(paidRevenue),
+            pendingOrders,
+          };
+        }, [orders]);
+
+        const renderContent = () => {
+          switch (activeTab) {
+            case TABS.ORDERS:
+              return (
+                <OrdersManagement
+                  db={db}
+                  userId={userId}
+                  appId={appId}
+                  orders={orders}
+                  products={products}
+                  loading={loading}
+                  setLoading={setLoading}
+                  setIsModalOpen={setIsModalOpen}
+                  setModalContent={setModalContent}
+                  ordersSummary={ordersSummary}
+                />
+              );
+            case TABS.CUSTOMERS:
+              return (
+                <CustomersManagement
+                  db={db}
+                  userId={userId}
+                  appId={appId}
+                  customers={customers}
+                  loading={loading}
+                  setLoading={setLoading}
+                  setIsModalOpen={setIsModalOpen}
+                  setModalContent={setModalContent}
+                />
+              );
+            case TABS.PRODUCTS:
+              return (
+                <ProductsManagement
+                  db={db}
+                  userId={userId}
+                  appId={appId}
+                  products={products}
+                  loading={loading}
+                  setLoading={setLoading}
+                  setIsModalOpen={setIsModalOpen}
+                  setModalContent={setModalContent}
+                />
+              );
+            default:
+              return null;
+          }
+        };
+
+        if (error && !db) {
+          return (
+            <div className="flex items-center justify-center min-h-screen bg-red-100 p-4">
+              <div className="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
+                <h2 className="text-xl font-bold text-red-600 mb-4">Error de Configuración</h2>
+                <p className="text-gray-700">No se pudo inicializar la aplicación. {error}</p>
+                <p className="mt-2 text-sm text-gray-500">
+                  Asegúrate de que la configuración de Firebase sea correcta.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="min-h-screen bg-gray-50 font-sans antialiased p-4 sm:p-8">
+            <div className="max-w-7xl mx-auto">
+              <header className="mb-8">
+                <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 flex items-center">
+                  <span className="mr-2">🌮</span> MADtortillas CRM
+                </h1>
+                <p className="text-sm text-gray-500 mt-1">
+                  Gestión de Pedidos, Clientes y Productos. Usuario:
+                  <span className="font-mono text-xs bg-gray-200 px-2 py-0.5 rounded ml-1">
+                    {userId || "Cargando..."}
+                  </span>
+                </p>
+              </header>
+
+              <div className="border-b border-gray-200 mb-8">
+                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                  {Object.values(TABS).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={`${
+                        activeTab === tab
+                          ? "border-indigo-500 text-indigo-600"
+                          : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                      } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition duration-150`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {renderContent()}
+            </div>
+
+            <Modal
+              isOpen={isModalOpen}
+              title={modalContent.title}
+              message={modalContent.message}
+              onConfirm={modalContent.onConfirm}
+              onCancel={modalContent.onCancel}
+              confirmText={modalContent.confirmText}
+            />
+          </div>
+        );
+      };
+
+      const root = createRoot(document.getElementById("root"));
+      root.render(<App />);
+    </script>
+  </body>
 </html>
